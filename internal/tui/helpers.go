@@ -5,11 +5,38 @@ import (
 	"slices"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mistakenelf/fm/filetree"
 	"github.com/mistakenelf/fm/polish"
 )
 
 func contains(s []string, str string) bool {
 	return slices.Contains(s, str)
+}
+
+// operationInFlight reports whether either tree has submitted an operation
+// that is still waiting for its terminal result.
+func (m *model) operationInFlight() bool {
+	return m.filetree.IsWaiting() || m.secondaryFiletree.IsWaiting()
+}
+
+// cancelInteraction closes any open create/rename/move interaction without a
+// disk operation having happened and restores the main tree as the active,
+// enabled pane. It must only be called when no operation is in flight.
+func (m *model) cancelInteraction() {
+	m.state = idleState
+	m.showTextInput = false
+	m.disableAllViewports()
+	m.resetViewports()
+	m.filetree.SetDisabled(false)
+	m.textinput.Blur()
+	m.textinput.Reset()
+	m.filetree.State = filetree.IdleState
+	m.secondaryFiletree.SetDisabled(true)
+	m.activePane = 0
+	m.pendingMoveID = 0
+	m.moveSourcePath = ""
+	m.moveSourceName = ""
+	m.moveDestination = ""
 }
 
 func (m *model) disableAllViewports() {
@@ -70,7 +97,14 @@ func (m *model) updateStatusBar() {
 		}
 
 		if m.showTextInput {
-			statusMessage = m.textinput.View()
+			// Keep a terminal operation error visible next to the prompt so
+			// a failed submit is not silent while the input is retained.
+			inputView := m.textinput.View()
+			if m.filetree.StatusMessage != "" || m.statusMessage != "" {
+				statusMessage = statusMessage + " " + inputView
+			} else {
+				statusMessage = inputView
+			}
 		}
 
 		m.statusbar.SetContent(
@@ -83,7 +117,12 @@ func (m *model) updateStatusBar() {
 		statusMessage := "Directory is empty"
 
 		if m.showTextInput {
-			statusMessage = m.textinput.View()
+			inputView := m.textinput.View()
+			if m.filetree.StatusMessage != "" || m.statusMessage != "" {
+				statusMessage = m.filetree.StatusMessage + m.statusMessage + " " + inputView
+			} else {
+				statusMessage = inputView
+			}
 		}
 
 		m.statusbar.SetContent(

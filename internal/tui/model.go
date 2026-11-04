@@ -60,6 +60,15 @@ type model struct {
 	directoryBeforeMove   string
 	statusMessageLifetime time.Duration
 	statusMessageTimer    *time.Timer
+	// Move flow bookkeeping. pendingMoveID is the id of the submitted move
+	// operation that has not reached a terminal state yet. The source fields
+	// are snapshotted when the move interaction starts so the submission is
+	// explicit, and moveDestination is the directory selected in the
+	// secondary tree at submit time, which must be refreshed on success.
+	pendingMoveID   uint64
+	moveSourcePath  string
+	moveSourceName  string
+	moveDestination string
 }
 
 // New creates a new instance of the UI.
@@ -68,11 +77,13 @@ func New(cfg Config) model {
 	filetreeModel.SetTheme(cfg.Theme.SelectedTreeItemColor, cfg.Theme.UnselectedTreeItemColor)
 	filetreeModel.SetSelectionPath(cfg.SelectionPath)
 	filetreeModel.SetShowIcons(cfg.ShowIcons)
+	filetreeModel.SetTreeID(filetree.PrimaryTree)
 
 	secondaryFiletree := filetree.New(cfg.StartDir)
 	secondaryFiletree.SetTheme(cfg.Theme.SelectedTreeItemColor, cfg.Theme.UnselectedTreeItemColor)
 	secondaryFiletree.SetSelectionPath(cfg.SelectionPath)
 	secondaryFiletree.SetShowIcons(cfg.ShowIcons)
+	secondaryFiletree.SetTreeID(filetree.SecondaryTree)
 	secondaryFiletree.SetDisabled(true)
 
 	codeModel := code.New()

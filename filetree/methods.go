@@ -9,6 +9,34 @@ func (m *Model) SetDisabled(disabled bool) {
 	m.Disabled = disabled
 }
 
+// SetTreeID assigns the tree identity used to tag commands and to decide
+// which result messages belong to this tree.
+func (m *Model) SetTreeID(id TreeID) {
+	m.treeID = id
+}
+
+// BeginOperation marks an operation as submitted and waiting for a terminal
+// result. It returns the unique id that the result message must carry.
+func (m *Model) BeginOperation(kind OpKind) uint64 {
+	m.opSequence++
+	m.pendingOpID = m.opSequence
+	m.pendingKind = kind
+
+	return m.opSequence
+}
+
+// PendingOperationID returns the id of the operation currently in flight, or
+// zero when no operation is waiting for a result.
+func (m Model) PendingOperationID() uint64 {
+	return m.pendingOpID
+}
+
+// IsWaiting reports whether a submitted operation is still waiting for its
+// terminal result.
+func (m Model) IsWaiting() bool {
+	return m.pendingOpID != 0
+}
+
 // GetSelectedItem returns the currently selected file/dir.
 func (m Model) GetSelectedItem() DirectoryItem {
 	if len(m.files) > 0 {
@@ -21,6 +49,11 @@ func (m Model) GetSelectedItem() DirectoryItem {
 // GetTotalItems returns total number of tree items.
 func (m Model) GetTotalItems() int {
 	return len(m.files)
+}
+
+// Items returns the directory items currently listed.
+func (m Model) Items() []DirectoryItem {
+	return m.files
 }
 
 // SetSize Sets the size of the filetree.

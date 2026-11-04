@@ -11,11 +11,24 @@ import (
 	"github.com/mistakenelf/fm/polish"
 )
 
+func renderError(s string) string {
+	return lipgloss.NewStyle().
+		Foreground(polish.Colors.Red600).
+		Bold(true).
+		Render(s)
+}
+
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
+	// A disabled tree must ignore keyboard input, but it still has to process
+	// completion and error messages. Otherwise an operation finished while the
+	// tree is disabled (e.g. a move) would be silently dropped and the tree
+	// would stay disabled forever.
 	if m.Disabled {
-		return m, nil
+		if _, ok := msg.(tea.KeyMsg); ok {
+			return m, nil
+		}
 	}
 
 	switch msg := msg.(type) {
@@ -25,14 +38,26 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 	case errorMsg:
-		cmds = append(cmds, m.NewStatusMessageCmd(
-			lipgloss.NewStyle().
-				Foreground(polish.Colors.Red600).
-				Bold(true).
-				Render(string(msg))))
+		cmds = append(cmds, m.NewStatusMessageCmd(renderError(string(msg))))
 	case statusMessageTimeoutMsg:
 		m.StatusMessage = ""
-	case moveDirectoryItemMsg:
+	case OperationResultMsg:
+		// Results belong to exactly one submission of one tree. A result for
+		// another tree, or a late result for an operation that is no longer
+		// pending, must never reset the interaction that is currently open.
+		if msg.TreeID != m.treeID || msg.ID == 0 || msg.ID != m.pendingOpID {
+			return m, nil
+		}
+
+		m.pendingOpID = 0
+		m.pendingKind = 0
+
+		if msg.Err != nil {
+			// The change never landed: keep the prompt/destination so the
+			// user can retry or cancel without losing any input.
+			return m, m.NewStatusMessageCmd(renderError(msg.Err.Error()))
+		}
+
 		m.State = IdleState
 
 		return m, m.GetDirectoryListingCmd(m.CurrentDirectory)
@@ -41,19 +66,17 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			lipgloss.NewStyle().
 				Bold(true).
 				Render(string(msg))))
-	case createFileMsg:
-		m.State = IdleState
-
-		return m, m.GetDirectoryListingCmd(m.CurrentDirectory)
-	case createDirectoryMsg:
-		m.State = IdleState
-
-		return m, m.GetDirectoryListingCmd(m.CurrentDirectory)
-	case renameDirectoryItemMsg:
-		m.State = IdleState
-
-		return m, m.GetDirectoryListingCmd(m.CurrentDirectory)
 	case getDirectoryListingMsg:
+		// Listings are tagged with the tree that requested them so navigating
+		// one tree can never overwrite the other tree's directory.
+		if msg.treeID != m.treeID {
+			return m, nil
+		}
+
+		if msg.err != nil {
+			return m, m.NewStatusMessageCmd(renderError(msg.err.Error()))
+		}
+
 		if msg.files != nil {
 			m.files = msg.files
 		} else {

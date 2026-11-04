@@ -20,6 +20,26 @@ const (
 	RenameState
 )
 
+// TreeID identifies which directory tree a message belongs to.
+type TreeID int
+
+const (
+	// PrimaryTree is the main, left hand tree.
+	PrimaryTree TreeID = iota
+	// SecondaryTree is the right hand tree used while moving an item.
+	SecondaryTree
+)
+
+// OpKind identifies the kind of a submitted filesystem operation.
+type OpKind int
+
+const (
+	OpCreateFile OpKind = iota
+	OpCreateDirectory
+	OpRename
+	OpMove
+)
+
 type DirectoryItem struct {
 	Name        string
 	Details     string
@@ -54,6 +74,10 @@ type Model struct {
 	err                   error
 	CurrentDirectory      string
 	State                 treeState
+	treeID                TreeID
+	opSequence            uint64
+	pendingOpID           uint64
+	pendingKind           OpKind
 }
 
 func New(startDir string) Model {

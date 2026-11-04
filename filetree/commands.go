@@ -19,13 +19,23 @@ type errorMsg string
 type copyToClipboardMsg string
 type statusMessageTimeoutMsg struct{}
 type editorFinishedMsg struct{ err error }
-type createFileMsg struct{}
-type createDirectoryMsg struct{}
-type moveDirectoryItemMsg struct{}
-type renameDirectoryItemMsg struct{}
+
+// OperationResultMsg is the terminal result of a filesystem operation that
+// was explicitly submitted. ID identifies the submission so that late or
+// out-of-order results cannot reset a newer interaction, and TreeID is the
+// tree that owns the operation.
+type OperationResultMsg struct {
+	ID     uint64
+	Kind   OpKind
+	TreeID TreeID
+	Err    error
+}
+
 type getDirectoryListingMsg struct {
+	treeID           TreeID
 	files            []DirectoryItem
 	workingDirectory string
+	err              error
 }
 
 // NewStatusMessageCmd sets a new status message, which will show for a limited
@@ -45,48 +55,70 @@ func (m *Model) NewStatusMessageCmd(s string) tea.Cmd {
 	}
 }
 
-// CreateDirectoryCmd creates a directory based on the name provided.
-func (m *Model) CreateDirectoryCmd(name string) tea.Cmd {
+// CreateDirectoryCmd creates a directory based on the name provided. The id
+// must come from BeginOperation and uniquely identifies the submission.
+func (m Model) CreateDirectoryCmd(id uint64, name string) tea.Cmd {
 	return func() tea.Msg {
-		if err := filesystem.CreateDirectory(name); err != nil {
-			return errorMsg(err.Error())
-		}
+		err := filesystem.CreateDirectory(name)
 
-		return createDirectoryMsg{}
+		return OperationResultMsg{
+			ID:     id,
+			Kind:   OpCreateDirectory,
+			TreeID: m.treeID,
+			Err:    err,
+		}
 	}
 }
 
-// CreateFileCmd creates a file based on the name provided.
-func (m *Model) CreateFileCmd(name string) tea.Cmd {
+// CreateFileCmd creates a file based on the name provided. The id must come
+// from BeginOperation and uniquely identifies the submission.
+func (m Model) CreateFileCmd(id uint64, name string) tea.Cmd {
 	return func() tea.Msg {
-		if err := filesystem.CreateFile(name); err != nil {
-			return errorMsg(err.Error())
-		}
+		err := filesystem.CreateFile(name)
 
-		return createFileMsg{}
+		return OperationResultMsg{
+			ID:     id,
+			Kind:   OpCreateFile,
+			TreeID: m.treeID,
+			Err:    err,
+		}
 	}
 }
 
-// RenameDirectoryItemCmd renames a file or folder given a name.
-func (m *Model) RenameDirectoryItemCmd(originalName, newName string) tea.Cmd {
+// RenameDirectoryItemCmd renames a file or folder given a name. The id must
+// come from BeginOperation and uniquely identifies the submission.
+func (m Model) RenameDirectoryItemCmd(id uint64, originalName, newName string) tea.Cmd {
 	return func() tea.Msg {
-		if err := filesystem.RenameDirectoryItem(originalName, newName); err != nil {
-			return errorMsg(err.Error())
-		}
+		err := filesystem.RenameDirectoryItem(originalName, newName)
 
-		return renameDirectoryItemMsg{}
+		return OperationResultMsg{
+			ID:     id,
+			Kind:   OpRename,
+			TreeID: m.treeID,
+			Err:    err,
+		}
 	}
 }
 
-// MoveDirectoryItemCmd moves an item from one place to another.
-func (m Model) MoveDirectoryItemCmd(source, destination string) tea.Cmd {
+// MoveDirectoryItemCmd moves an item from one place to another. The id must
+// come from BeginOperation and uniquely identifies the submission.
+func (m Model) MoveDirectoryItemCmd(id uint64, source, destination string) tea.Cmd {
 	return func() tea.Msg {
-		if err := filesystem.MoveDirectoryItem(source, destination); err != nil {
-			return errorMsg(err.Error())
-		}
+		err := filesystem.MoveDirectoryItem(source, destination)
 
-		return moveDirectoryItemMsg{}
+		return OperationResultMsg{
+			ID:     id,
+			Kind:   OpMove,
+			TreeID: m.treeID,
+			Err:    err,
+		}
 	}
+}
+
+// listingError returns a directory listing message tagged with this tree
+// that carries the given error.
+func (m Model) listingError(err error) tea.Msg {
+	return getDirectoryListingMsg{treeID: m.treeID, err: err}
 }
 
 // GetDirectoryListingCmd updates the directory listing based on the name of the directory provided.
@@ -100,7 +132,7 @@ func (m Model) GetDirectoryListingCmd(directoryName string) tea.Cmd {
 		if directoryName == filesystem.HomeDirectory {
 			directoryName, err = filesystem.GetHomeDirectory()
 			if err != nil {
-				return errorMsg(err.Error())
+				return m.listingError(err)
 			}
 		}
 
@@ -108,7 +140,7 @@ func (m Model) GetDirectoryListingCmd(directoryName string) tea.Cmd {
 			directoryPath, err = filepath.Abs(directoryName)
 			fmt.Println(directoryPath)
 			if err != nil {
-				return errorMsg(err.Error())
+				return m.listingError(err)
 			}
 		} else {
 			directoryPath = directoryName
@@ -116,7 +148,7 @@ func (m Model) GetDirectoryListingCmd(directoryName string) tea.Cmd {
 
 		directoryInfo, err := os.Stat(directoryPath)
 		if err != nil {
-			return errorMsg(err.Error())
+			return m.listingError(err)
 		}
 
 		if !directoryInfo.IsDir() {
@@ -126,7 +158,7 @@ func (m Model) GetDirectoryListingCmd(directoryName string) tea.Cmd {
 		if !m.showDirectoriesOnly && !m.showFilesOnly {
 			files, err = filesystem.GetDirectoryListing(directoryName, m.showHidden)
 			if err != nil {
-				return errorMsg(err.Error())
+				return m.listingError(err)
 			}
 		} else {
 			listingType := filesystem.DirectoriesListingType
@@ -137,7 +169,7 @@ func (m Model) GetDirectoryListingCmd(directoryName string) tea.Cmd {
 
 			files, err = filesystem.GetDirectoryListingByType(directoryName, listingType, m.showHidden)
 			if err != nil {
-				return errorMsg(err.Error())
+				return m.listingError(err)
 			}
 		}
 
@@ -161,7 +193,7 @@ func (m Model) GetDirectoryListingCmd(directoryName string) tea.Cmd {
 				filePath = symlinkPath
 				symlinkInfo, err := os.Stat(symlinkPath)
 				if err != nil {
-					return errorMsg(err.Error())
+					return m.listingError(err)
 				}
 
 				isDirectory = symlinkInfo.IsDir()
@@ -185,6 +217,7 @@ func (m Model) GetDirectoryListingCmd(directoryName string) tea.Cmd {
 		})
 
 		return getDirectoryListingMsg{
+			treeID:           m.treeID,
 			files:            directoryItems,
 			workingDirectory: directoryPath,
 		}

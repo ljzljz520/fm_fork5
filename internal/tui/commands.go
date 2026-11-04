@@ -58,6 +58,15 @@ func (m *model) openFileCmd() tea.Cmd {
 	return nil
 }
 
+// newErrorStatusMessageCmd shows a red, bold status message for a limited
+// amount of time.
+func (m *model) newErrorStatusMessageCmd(s string) tea.Cmd {
+	return m.newStatusMessageCmd(lipgloss.NewStyle().
+		Foreground(polish.Colors.Red600).
+		Bold(true).
+		Render(s))
+}
+
 // newStatusMessage sets a new status message, which will show for a limited
 // amount of time.
 func (m *model) newStatusMessageCmd(s string) tea.Cmd {
